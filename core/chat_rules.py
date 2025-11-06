@@ -260,7 +260,7 @@ def _handle_list_available_tools() -> Dict[str, Any]:
         message_lines = [f"{get_greeting()}. Berikut daftar tools yang tersedia:\n"]
         
         for tool, versions in sorted(available.items()):
-            versions_str = ', '.join(versions)
+            versions_str = ', '.join(str(v) for v in versions)
             message_lines.append(f"🔧 {tool}: {versions_str}")
         
         message_lines.append(f"\nGunakan 'setup <tool> <version>' untuk menginstall.")
