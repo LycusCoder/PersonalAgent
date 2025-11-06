@@ -35,3 +35,7 @@ __pycache__/
 *~
 # File swap Vim
 .*.swp
+
+# --- Development Tools Binary ---
+# Folder yang berisi binary tool yang di-download/install Tool Manager
+bin/
