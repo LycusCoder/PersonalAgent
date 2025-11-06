@@ -1,17 +1,42 @@
 #!/bin/bash
 # AG Launcher - CLI untuk Agent Pribadi
 # Usage: 
-#   ag "perintah"        -> Tanpa TTS
+#   ag "perintah"        -> Tanpa TTS (mode default)
 #   ag -v "perintah"     -> Dengan TTS (voice)
 
-# Konfigurasi
+# --- Configuration ---
 API_URL="http://localhost:7777/api/chat"
 USE_TTS=false
 
+# --- Function: Speak ---
+# Fungsi cross-platform untuk Text-to-Speech
+speak() {
+    local text="$1"
+    
+    # Hapus bullet points (•, *) agar espeak tidak membacanya
+    CLEAN_TEXT=$(echo "$text" | sed 's/•//g' | sed 's/\*/ /g')
+    
+    # Deteksi OS dan panggil TTS tool yang sesuai
+    if command -v espeak &> /dev/null; then
+        # Linux - espeak
+        espeak -v en-us -s 140 "$CLEAN_TEXT" 2>/dev/null &
+    elif command -v say &> /dev/null; then
+        # macOS - say
+        say "$CLEAN_TEXT" 2>/dev/null &
+    elif command -v powershell.exe &> /dev/null; then
+        # Windows (WSL) - PowerShell Speech
+        powershell.exe -Command "Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('$CLEAN_TEXT')" 2>/dev/null &
+    else
+        echo "[INFO: TTS tidak tersedia atau tidak dikonfigurasi di sistem ini.]" >&2
+    fi
+}
+
+
+# --- Command Parsing ---
 # Parse arguments
 if [ "$1" = "-v" ]; then
     USE_TTS=true
-    shift  # Remove -v from arguments
+    shift  # Hapus -v dari argumen
 fi
 
 # Gabungkan semua argumen menjadi satu command
@@ -28,43 +53,51 @@ if [ -z "$COMMAND" ]; then
     exit 1
 fi
 
-# Kirim request ke API
+
+# --- API Call ---
+# Kirim request ke API Flask
 RESPONSE=$(curl -s -X POST "$API_URL" \
     -H "Content-Type: application/json" \
     -d "{\"message\":\"$COMMAND\"}" 2>/dev/null)
 
-# Cek apakah curl berhasil
+
+# --- Error Checking and JSON Parsing (KUNCI PERBAIKAN) ---
+
+# Cek apakah curl gagal terhubung ke server (Error Code != 0)
 if [ $? -ne 0 ]; then
     echo "Error: Tidak dapat terhubung ke Agent Service."
-    echo "Pastikan server berjalan di port 7777"
+    echo "Pastikan server berjalan di $API_URL"
     exit 1
 fi
 
-# Parse response (extract message field)
-MESSAGE=$(echo "$RESPONSE" | grep -o '"message":"[^"]*"' | sed 's/"message":"//;s/"$//' | sed 's/\\n/\n/g')
+# 🚨 Perbaikan 1: Gunakan jq untuk parsing yang kokoh
+# Ambil field 'message' dari JSON. jq -r memastikan string di-unescape (misal: \n menjadi newline)
+MESSAGE=$(echo "$RESPONSE" | jq -r '.message' 2>/dev/null)
+SUCCESS=$(echo "$RESPONSE" | jq -r '.success' 2>/dev/null)
+RAW_RESPONSE=$(echo "$RESPONSE" | jq '.' 2>/dev/null) # Formatting raw response untuk debug
 
-# Tampilkan response
-if [ -n "$MESSAGE" ]; then
-    echo "$MESSAGE"
-    
-    # TTS jika diminta
-    if [ "$USE_TTS" = true ]; then
-        # Detect OS dan gunakan TTS yang sesuai
-        if command -v espeak &> /dev/null; then
-            # Linux - espeak
-            echo "$MESSAGE" | espeak 2>/dev/null
-        elif command -v say &> /dev/null; then
-            # macOS - say
-            echo "$MESSAGE" | say
-        elif command -v powershell.exe &> /dev/null; then
-            # Windows (WSL) - PowerShell Speech
-            powershell.exe -Command "Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('$MESSAGE')" 2>/dev/null
-        else
-            echo "[TTS tidak tersedia di sistem ini]"
-        fi
+# Cek kegagalan parsing atau kegagalan logika Agent
+if [ -z "$MESSAGE" ] || [ "$MESSAGE" = "null" ] || [ "$SUCCESS" = "false" ]; then
+    echo "Error: Agent Service gagal memproses command."
+    echo "Detail:"
+    # Tampilkan pesan error dari Agent atau respons mentah jika Agent tidak memberikan pesan
+    ERROR_MESSAGE=$(echo "$RESPONSE" | jq -r '.message' 2>/dev/null)
+    if [ "$ERROR_MESSAGE" != "null" ]; then
+        echo "$ERROR_MESSAGE"
+    else
+        echo "Raw Response: $RAW_RESPONSE"
     fi
-else
-    echo "Error: Tidak dapat memproses response dari server"
-    echo "Raw response: $RESPONSE"
     exit 1
+fi
+
+# --- Output and TTS ---
+
+# Tampilkan response di terminal
+# Perbaikan 2: Hapus bullet point dari output terminal (•) agar rapi
+CLEAN_MESSAGE=$(echo "$MESSAGE" | sed 's/•/\*/g')
+echo "$CLEAN_MESSAGE"
+
+# TTS jika diminta
+if [ "$USE_TTS" = true ]; then
+    speak "$MESSAGE"
 fi
