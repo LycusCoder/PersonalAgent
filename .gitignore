@@ -1,0 +1,37 @@
+# --- Project Specific Files (Wajib diabaikan) ---
+# Folder yang berisi token atau kunci rahasia
+keys/
+
+# --- Dependency dan Virtual Environment ---
+# Virtual environment Python (wajib diabaikan)
+venv/
+.venv/
+env/
+
+# Dependency (biasanya di luar root proyek)
+*.egg-info/
+dist/
+build/
+
+# --- Python Compiled Files dan Cache ---
+# Byte-compiled files
+__pycache__/
+*.pyc
+*.pyd
+*.so
+
+# Installer files
+*.egg
+
+# --- Operating System Files ---
+# Cache file macOS
+.DS_Store
+
+# Log files atau output runtime Agent
+# Jika Anda membuat file log (e.g., agent_pipeline_*.log)
+*.log
+
+# File atau folder temporer dari editor (seperti Vim, Nano, VS Code)
+*~
+# File swap Vim
+.*.swp
