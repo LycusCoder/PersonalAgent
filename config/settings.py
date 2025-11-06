@@ -34,6 +34,12 @@ TTS_DEFAULT_ENABLED = False  # Default TTS off, bisa diaktifkan via -v flag
 API_PREFIX = '/api'
 MAX_COMMAND_HISTORY = 100  # Maksimal history yang disimpan
 
+# Tools Manager Configuration
+BIN_DIR = PROJECT_ROOT / 'bin'  # Directory untuk tools binaries
+TOOLS_CONFIG_PATH = PROJECT_ROOT / 'config' / 'tools' / 'packages.yaml'
+TOOLS_DOWNLOAD_TIMEOUT = 300  # 5 minutes timeout untuk download
+
 # Create necessary directories
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 (PROJECT_ROOT / 'storage').mkdir(parents=True, exist_ok=True)
+BIN_DIR.mkdir(parents=True, exist_ok=True)

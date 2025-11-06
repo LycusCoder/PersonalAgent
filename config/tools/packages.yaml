@@ -1,0 +1,56 @@
+# ============================================================================
+# PACKAGES CONFIGURATION - Linux Version (Zorin OS / Debian / Ubuntu)
+# ============================================================================
+# Format: TOOL-VERSION: DOWNLOAD_URL
+# Tool Manager akan download dan extract ke: /bin/{tool}/{version}/
+# ============================================================================
+
+# Web Servers
+nginx:
+  1.25.4: https://nginx.org/download/nginx-1.25.4.tar.gz
+  1.24.0: https://nginx.org/download/nginx-1.24.0.tar.gz
+  1.26.0: https://nginx.org/download/nginx-1.26.0.tar.gz
+
+apache:
+  2.4.65: https://archive.apache.org/dist/httpd/httpd-2.4.65.tar.gz
+  2.4.57: https://archive.apache.org/dist/httpd/httpd-2.4.57.tar.gz
+
+# PHP (Source code for compilation)
+php:
+  8.4: https://www.php.net/distributions/php-8.4.2.tar.gz
+  8.3: https://www.php.net/distributions/php-8.3.15.tar.gz
+  8.2: https://www.php.net/distributions/php-8.2.28.tar.gz
+  8.1: https://www.php.net/distributions/php-8.1.32.tar.gz
+
+# Node.js (Linux x64 Pre-built)
+node:
+  24.9.0: https://nodejs.org/dist/v24.9.0/node-v24.9.0-linux-x64.tar.xz
+  23.11.0: https://nodejs.org/dist/v23.11.0/node-v23.11.0-linux-x64.tar.xz
+  22.14.0: https://nodejs.org/dist/v22.14.0/node-v22.14.0-linux-x64.tar.xz
+  20.18.0: https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-x64.tar.xz
+
+# MySQL (Pre-compiled)
+mysql:
+  9.4.0: https://dev.mysql.com/get/Downloads/MySQL-9.4/mysql-9.4.0-linux-glibc2.28-x86_64.tar.xz
+  8.4.6: https://dev.mysql.com/get/Downloads/MySQL-8.4/mysql-8.4.6-linux-glibc2.28-x86_64.tar.xz
+  8.0.40: https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-8.0.40-linux-glibc2.28-x86_64.tar.xz
+
+# PostgreSQL (Source code)
+postgresql:
+  18.0: https://ftp.postgresql.org/pub/source/v18.0/postgresql-18.0.tar.gz
+  17.2: https://ftp.postgresql.org/pub/source/v17.2/postgresql-17.2.tar.gz
+  16.6: https://ftp.postgresql.org/pub/source/v16.6/postgresql-16.6.tar.gz
+
+# MongoDB (Pre-compiled)
+mongodb:
+  8.0.4: https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu2204-8.0.4.tgz
+  7.0.14: https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu2204-7.0.14.tgz
+
+# Go (Pre-built)
+go:
+  1.24.1: https://go.dev/dl/go1.24.1.linux-amd64.tar.gz
+  1.23.4: https://go.dev/dl/go1.23.4.linux-amd64.tar.gz
+
+# Pocketbase (Pre-built)
+pocketbase:
+  0.25.9: https://github.com/pocketbase/pocketbase/releases/download/v0.25.9/pocketbase_0.25.9_linux_amd64.zip
