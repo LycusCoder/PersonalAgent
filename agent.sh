@@ -228,14 +228,21 @@ cmd_setup() {
 # --- Command: setup-ag-command ---
 setup_ag_command() {
     local ag_launcher="$CLI_DIR/ag_launcher.sh"
+    local agt_launcher="$CLI_DIR/agt_launcher.sh"
     
     if [ ! -f "$ag_launcher" ]; then
         print_error "ag_launcher.sh not found at $ag_launcher"
         return 1
     fi
     
-    # Make ag_launcher executable
+    if [ ! -f "$agt_launcher" ]; then
+        print_error "agt_launcher.sh not found at $agt_launcher"
+        return 1
+    fi
+    
+    # Make launchers executable
     chmod +x "$ag_launcher"
+    chmod +x "$agt_launcher"
     
     # Detect shell
     local shell_rc=""
@@ -258,18 +265,33 @@ setup_ag_command() {
     
     # Check if already registered
     local ag_alias="alias ag='$ag_launcher'"
+    local agt_alias="alias agt='$agt_launcher'"
     
-    if grep -q "$ag_launcher" "$shell_rc" 2>/dev/null; then
-        print_info "ag command already registered in $shell_rc"
+    local already_registered=true
+    
+    if ! grep -q "$ag_launcher" "$shell_rc" 2>/dev/null; then
+        already_registered=false
+    fi
+    
+    if ! grep -q "$agt_launcher" "$shell_rc" 2>/dev/null; then
+        already_registered=false
+    fi
+    
+    if [ "$already_registered" = true ]; then
+        print_info "ag and agt commands already registered in $shell_rc"
         return 0
     fi
     
-    # Add alias to shell config
+    # Add aliases to shell config
     echo "" >> "$shell_rc"
     echo "# Agent Pribadi (AG) CLI - Auto-registered by agent.sh" >> "$shell_rc"
     echo "$ag_alias" >> "$shell_rc"
+    echo "$agt_alias" >> "$shell_rc"
+    echo "" >> "$shell_rc"
     
-    print_success "ag command registered to $shell_rc"
+    print_success "ag and agt commands registered to $shell_rc"
+    print_info "  • ag  : Normal mode (TTS optional with -v flag)"
+    print_info "  • agt : TTS mode (Voice always enabled)"
     print_info "Run: source $shell_rc"
     
     # Try to source it in current shell

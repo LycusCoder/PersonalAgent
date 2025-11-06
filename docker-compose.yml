@@ -1,0 +1,53 @@
+# Docker Compose for Agent Pribadi (AG)
+# Hybrid Architecture: Nginx in Docker + Flask on Host
+
+version: '3.8'
+
+services:
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    container_name: agent_nginx
+    ports:
+      - "80:80"
+    extra_hosts:
+      # Untuk akses ke host machine (Flask service di port 7777)
+      - "host.docker.internal:host-gateway"
+    networks:
+      - agent_network
+    restart: unless-stopped
+    volumes:
+      # Mount logs ke host untuk monitoring
+      - ./logs/nginx:/var/log/nginx:rw
+    depends_on:
+      - agent_health_check
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Dummy service untuk health check
+  agent_health_check:
+    image: alpine:latest
+    container_name: agent_health
+    command: |
+      sh -c '
+        echo "Checking if Agent Service is running on host..."
+        apk add --no-cache curl
+        while ! curl -s http://host.docker.internal:7777/health > /dev/null; do
+          echo "Waiting for Agent Service on host:7777..."
+          sleep 2
+        done
+        echo "Agent Service is UP! Starting nginx..."
+      '
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - agent_network
+
+networks:
+  agent_network:
+    driver: bridge
+    name: agent_network
