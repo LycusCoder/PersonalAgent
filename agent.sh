@@ -17,6 +17,8 @@ SERVICE_FILE="$PROJECT_ROOT/agent_service.py"
 PID_FILE="$PROJECT_ROOT/.agent.pid"
 LOG_FILE="$PROJECT_ROOT/logs/agent.log"
 API_URL="http://localhost:7777"
+MODE_FILE="$PROJECT_ROOT/.agent_mode.conf"
+DOCKER_AGENT_SCRIPT="$PROJECT_ROOT/docker-agent.sh"
 
 # Colors for output
 RED='\033[0;31m'
@@ -309,6 +311,102 @@ cmd_setup_host() {
     fi
 }
 
+# --- Helper: Check Docker ---
+check_docker_available() {
+    if ! command -v docker &> /dev/null; then
+        return 1
+    fi
+    
+    if ! command -v docker compose &> /dev/null && ! docker compose version &> /dev/null 2>&1; then
+        return 1
+    fi
+    
+    return 0
+}
+
+# --- Helper: Start Flask Service ---
+start_flask_service() {
+    print_info "Starting Flask service..."
+    
+    # Create logs directory
+    mkdir -p "$(dirname "$LOG_FILE")"
+    
+    # Start service in background
+    nohup python3 "$SERVICE_FILE" > "$LOG_FILE" 2>&1 &
+    local pid=$!
+    
+    # Save PID
+    echo "$pid" > "$PID_FILE"
+    
+    # Wait and verify
+    sleep 2
+    
+    if ps -p "$pid" > /dev/null 2>&1; then
+        print_success "Flask service started successfully! (PID: $pid)"
+        
+        # Test health endpoint
+        sleep 1
+        if curl -s "$API_URL/health" > /dev/null 2>&1; then
+            print_success "Health check passed!"
+        else
+            print_warning "Service started but health check failed"
+            print_info "Check logs: tail -f $LOG_FILE"
+        fi
+        return 0
+    else
+        print_error "Failed to start Flask service"
+        print_info "Check logs: tail -f $LOG_FILE"
+        rm -f "$PID_FILE"
+        return 1
+    fi
+}
+
+# --- Helper: Start Docker Agent ---
+start_docker_agent() {
+    print_info "Starting Docker Nginx Reverse Proxy..."
+    
+    if [ ! -f "$DOCKER_AGENT_SCRIPT" ]; then
+        print_error "docker-agent.sh not found!"
+        return 1
+    fi
+    
+    # Check if image exists
+    if ! docker images | grep -q "agent_nginx"; then
+        print_warning "Docker image not found. Building..."
+        bash "$DOCKER_AGENT_SCRIPT" build
+        if [ $? -ne 0 ]; then
+            print_error "Failed to build Docker image"
+            return 1
+        fi
+    fi
+    
+    # Start Docker container
+    bash "$DOCKER_AGENT_SCRIPT" start
+    
+    if [ $? -eq 0 ]; then
+        print_success "Docker agent started successfully!"
+        return 0
+    else
+        print_error "Failed to start Docker agent"
+        return 1
+    fi
+}
+
+# --- Helper: Save Mode ---
+save_mode() {
+    local mode="$1"
+    echo "$mode" > "$MODE_FILE"
+}
+
+# --- Helper: Get Saved Mode ---
+get_saved_mode() {
+    if [ -f "$MODE_FILE" ]; then
+        cat "$MODE_FILE"
+    else
+        echo "native"
+    fi
+}
+
 # --- Command: start ---
 cmd_start() {
     print_banner
@@ -329,41 +427,110 @@ cmd_start() {
         fi
     fi
     
-    # Create logs directory
-    mkdir -p "$(dirname "$LOG_FILE")"
+    # Ask user for mode selection
+    echo "📦 Pilih mode untuk menjalankan Agent Service:"
+    echo ""
+    echo "  [Y] Dengan Docker Agent (Nginx Reverse Proxy)"
+    echo "      → Flask service + Nginx container"
+    echo "      → Akses: http://localhost:7777 & http://komputerku.nour"
+    echo ""
+    echo "  [N] Native saja (tanpa Docker)"
+    echo "      → Hanya Flask service"
+    echo "      → Akses: http://localhost:7777"
+    echo ""
+    read -p "Gunakan Docker Agent? [Y/N]: " -n 1 -r
+    echo ""
+    echo ""
     
-    # Start service in background
-    print_info "Starting Flask service..."
-    nohup python3 "$SERVICE_FILE" > "$LOG_FILE" 2>&1 &
-    local pid=$!
-    
-    # Save PID
-    echo "$pid" > "$PID_FILE"
-    
-    # Wait a moment and check if started successfully
-    sleep 2
-    
-    if ps -p "$pid" > /dev/null 2>&1; then
-        print_success "Agent service started successfully! (PID: $pid)"
-        print_info "API URL: $API_URL"
-        print_info "Dashboard: http://localhost:7777"
-        print_info "Logs: tail -f $LOG_FILE"
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        # Mode: With Docker
+        print_info "Mode: Flask + Docker Agent (Nginx)"
+        echo "════════════════════════════════════════════════════════"
         echo ""
         
-        # Test health endpoint
-        sleep 1
-        if curl -s "$API_URL/health" > /dev/null 2>&1; then
-            print_success "Health check passed!"
-            print_info "Try: ag bantuan"
+        # Check Docker availability
+        if ! check_docker_available; then
+            print_error "Docker atau Docker Compose tidak tersedia!"
+            print_info "Install Docker: https://docs.docker.com/get-docker/"
+            echo ""
+            print_warning "Falling back to native mode (Flask only)..."
+            echo ""
+            
+            start_flask_service
+            save_mode "native"
         else
-            print_warning "Service started but health check failed"
-            print_info "Check logs: tail -f $LOG_FILE"
+            # Start Flask first
+            if start_flask_service; then
+                echo ""
+                
+                # Start Docker agent
+                if start_docker_agent; then
+                    save_mode "docker"
+                    echo ""
+                    echo "════════════════════════════════════════════════════════"
+                    print_success "✅ SEMUA SERVICE BERHASIL DIJALANKAN!"
+                    echo ""
+                    print_info "📍 URL Akses:"
+                    print_info "  • http://localhost:7777 (Direct ke Flask)"
+                    print_info "  • http://komputerku.nour (Melalui Nginx)"
+                    echo ""
+                    print_info "💡 Tips:"
+                    print_info "  • Test: ag bantuan"
+                    print_info "  • Logs: ./agent.sh logs"
+                    print_info "  • Status: ./agent.sh status"
+                else
+                    print_warning "Docker agent gagal dijalankan, tapi Flask tetap jalan"
+                    save_mode "native"
+                fi
+            else
+                return 1
+            fi
         fi
     else
-        print_error "Failed to start agent service"
-        print_info "Check logs: tail -f $LOG_FILE"
-        rm -f "$PID_FILE"
-        return 1
+        # Mode: Native only
+        print_info "Mode: Native (Flask only)"
+        echo "════════════════════════════════════════════════════════"
+        echo ""
+        
+        if start_flask_service; then
+            save_mode "native"
+            echo ""
+            echo "════════════════════════════════════════════════════════"
+            print_success "✅ FLASK SERVICE BERHASIL DIJALANKAN!"
+            echo ""
+            print_info "📍 URL Akses:"
+            print_info "  • http://localhost:7777"
+            echo ""
+            print_info "💡 Tips:"
+            print_info "  • Test: ag bantuan"
+            print_info "  • Logs: ./agent.sh logs"
+            print_info "  • Status: ./agent.sh status"
+        else
+            return 1
+        fi
+    fi
+}
+
+# --- Helper: Stop Docker Agent ---
+stop_docker_agent() {
+    # Check if Docker is available
+    if ! check_docker_available; then
+        return 0
+    fi
+    
+    # Check if nginx container is running
+    if docker ps | grep -q "agent_nginx"; then
+        print_info "Stopping Docker Nginx container..."
+        
+        if [ -f "$DOCKER_AGENT_SCRIPT" ]; then
+            bash "$DOCKER_AGENT_SCRIPT" stop > /dev/null 2>&1
+            print_success "Docker agent stopped"
+        else
+            # Fallback: stop container directly
+            docker stop agent_nginx > /dev/null 2>&1 || true
+            docker rm agent_nginx > /dev/null 2>&1 || true
+            print_success "Docker container stopped"
+        fi
     fi
 }
 
@@ -374,7 +541,14 @@ cmd_stop() {
     echo "════════════════════════════════════════════════════════"
     echo ""
     
-    local stopped=false
+    local flask_stopped=false
+    local mode=$(get_saved_mode)
+    
+    print_info "Detected mode: $mode"
+    echo ""
+    
+    # Stop Flask Service
+    print_info "🔴 Stopping Flask service..."
     
     # Method 1: Try stopping via PID file
     if [ -f "$PID_FILE" ]; then
@@ -398,8 +572,8 @@ cmd_stop() {
             fi
             
             if ! ps -p "$pid" > /dev/null 2>&1; then
-                stopped=true
-                print_success "Agent service stopped via PID"
+                flask_stopped=true
+                print_success "Flask service stopped (PID: $pid)"
             fi
         fi
         
@@ -407,7 +581,7 @@ cmd_stop() {
     fi
     
     # Method 2: If still running, try finding process on port 7777
-    if [ "$stopped" = false ]; then
+    if [ "$flask_stopped" = false ]; then
         print_info "Checking for processes on port 7777..."
         
         # Try using lsof (Linux/macOS)
@@ -423,7 +597,7 @@ cmd_stop() {
                 done
                 
                 sleep 1
-                stopped=true
+                flask_stopped=true
                 print_success "Processes on port 7777 killed"
             fi
         # Try using fuser (Linux alternative)
@@ -431,7 +605,7 @@ cmd_stop() {
             print_info "Using fuser to kill port 7777..."
             fuser -k 7777/tcp 2>/dev/null || true
             sleep 1
-            stopped=true
+            flask_stopped=true
             print_success "Port 7777 cleared via fuser"
         # Try using netstat + kill (fallback)
         elif command -v netstat &> /dev/null; then
@@ -441,10 +615,23 @@ cmd_stop() {
                 print_warning "Found process $port_pid on port 7777, killing..."
                 kill -9 "$port_pid" 2>/dev/null || true
                 sleep 1
-                stopped=true
+                flask_stopped=true
                 print_success "Process on port 7777 killed"
             fi
         fi
+    fi
+    
+    if [ "$flask_stopped" = false ]; then
+        print_info "No Flask service was running"
+    fi
+    
+    echo ""
+    
+    # Stop Docker Agent if mode was docker
+    if [ "$mode" = "docker" ]; then
+        print_info "🐳 Stopping Docker agent..."
+        stop_docker_agent
+        echo ""
     fi
     
     # Final verification
@@ -456,11 +643,8 @@ cmd_stop() {
         fi
     fi
     
-    if [ "$stopped" = true ]; then
-        print_success "✅ Agent service stopped successfully!"
-    else
-        print_info "No agent service was running"
-    fi
+    echo "════════════════════════════════════════════════════════"
+    print_success "✅ SEMUA SERVICE BERHASIL DIHENTIKAN!"
     
     return 0
 }
@@ -472,9 +656,61 @@ cmd_restart() {
     echo "════════════════════════════════════════════════════════"
     echo ""
     
+    local mode=$(get_saved_mode)
+    print_info "Restarting dengan mode: $mode"
+    echo ""
+    
+    # Stop all services
     cmd_stop
+    
+    echo ""
     sleep 2
-    cmd_start
+    
+    # Restart based on saved mode
+    if [ "$mode" = "docker" ]; then
+        print_info "Restarting dengan Docker agent..."
+        echo ""
+        
+        # Start Flask
+        start_flask_service
+        
+        if [ $? -eq 0 ]; then
+            echo ""
+            # Start Docker
+            if check_docker_available; then
+                start_docker_agent
+                
+                if [ $? -eq 0 ]; then
+                    echo ""
+                    echo "════════════════════════════════════════════════════════"
+                    print_success "✅ RESTART SELESAI (Mode: Docker)"
+                    echo ""
+                    print_info "📍 URL Akses:"
+                    print_info "  • http://localhost:7777"
+                    print_info "  • http://komputerku.nour"
+                else
+                    print_warning "Docker agent gagal restart, Flask tetap jalan"
+                fi
+            else
+                print_warning "Docker tidak tersedia, hanya Flask yang restart"
+                save_mode "native"
+            fi
+        fi
+    else
+        print_info "Restarting mode native (Flask only)..."
+        echo ""
+        
+        start_flask_service
+        
+        if [ $? -eq 0 ]; then
+            echo ""
+            echo "════════════════════════════════════════════════════════"
+            print_success "✅ RESTART SELESAI (Mode: Native)"
+            echo ""
+            print_info "📍 URL Akses:"
+            print_info "  • http://localhost:7777"
+        fi
+    fi
 }
 
 # --- Command: status ---
@@ -484,12 +720,17 @@ cmd_status() {
     echo "════════════════════════════════════════════════════════"
     echo ""
     
-    # Check PID file
+    local mode=$(get_saved_mode)
+    print_info "Current mode: $mode"
+    echo ""
+    
+    # Check Flask Service
+    echo "🔹 Flask Service (Port 7777):"
     if [ -f "$PID_FILE" ]; then
         local pid=$(cat "$PID_FILE")
         
         if ps -p "$pid" > /dev/null 2>&1; then
-            print_success "Service is RUNNING (PID: $pid)"
+            print_success "RUNNING (PID: $pid)"
             
             # Get process info
             echo ""
@@ -507,19 +748,48 @@ cmd_status() {
                 print_warning "API is not responding"
             fi
         else
-            print_warning "Service is STOPPED (stale PID file)"
+            print_warning "STOPPED (stale PID file)"
             rm -f "$PID_FILE"
         fi
     else
-        print_warning "Service is STOPPED (no PID file)"
+        print_warning "STOPPED (no PID file)"
     fi
     
     echo ""
+    
+    # Check Docker Agent if mode is docker
+    if [ "$mode" = "docker" ]; then
+        echo "🔹 Docker Agent (Nginx):"
+        if check_docker_available; then
+            if docker ps | grep -q "agent_nginx"; then
+                print_success "RUNNING"
+                echo ""
+                docker ps --filter "name=agent_nginx" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+                
+                echo ""
+                print_info "Testing endpoints..."
+                if curl -s http://localhost/health > /dev/null 2>&1; then
+                    print_success "HTTP endpoint responding"
+                fi
+                
+                if curl -s http://komputerku.nour/health > /dev/null 2>&1; then
+                    print_success "Virtual host working"
+                fi
+            else
+                print_warning "STOPPED"
+            fi
+        else
+            print_warning "Docker not available"
+        fi
+        echo ""
+    fi
+    
     echo "Configuration:"
     echo "  • Project Root: $PROJECT_ROOT"
     echo "  • Service File: $SERVICE_FILE"
     echo "  • Log File: $LOG_FILE"
     echo "  • API URL: $API_URL"
+    echo "  • Mode: $mode"
 }
 
 # --- Command: logs ---
@@ -552,18 +822,27 @@ cmd_help() {
     echo "  verify      - Verify all system dependencies"
     echo "  setup       - Setup system (install deps, register ag command)"
     echo "  setup-host  - Setup custom host (komputerku.nour)"
-    echo "  start       - Start the agent service"
-    echo "  stop        - Stop the agent service"
-    echo "  restart     - Restart the agent service"
-    echo "  status      - Show service status"
+    echo "  start       - Start the agent service (with interactive mode)"
+    echo "  stop        - Stop all running services"
+    echo "  restart     - Restart with last used mode"
+    echo "  status      - Show service status and mode"
     echo "  logs        - View service logs (tail -f)"
     echo "  help        - Show this help message"
+    echo ""
+    echo "Start Modes:"
+    echo "  When you run './agent.sh start', you'll be asked:"
+    echo "    [Y] With Docker   - Flask + Nginx reverse proxy"
+    echo "    [N] Native only   - Flask only (no Docker)"
+    echo ""
+    echo "  • stop/restart will follow the mode you chose"
+    echo "  • Mode is saved automatically"
     echo ""
     echo "Examples:"
     echo "  ./agent.sh verify       # Check system requirements"
     echo "  ./agent.sh setup        # One-time setup"
-    echo "  ./agent.sh start        # Start service"
-    echo "  ./agent.sh status       # Check if running"
+    echo "  ./agent.sh start        # Start service (interactive)"
+    echo "  ./agent.sh status       # Check status & mode"
+    echo "  ./agent.sh restart      # Restart with same mode"
     echo "  ag bantuan              # Use ag command (after setup)"
     echo ""
 }
