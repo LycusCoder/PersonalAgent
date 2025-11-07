@@ -87,9 +87,16 @@ cmd_verify() {
     
     # 3. Check required Python packages
     echo "3️⃣ Checking Python dependencies..."
-    local required_packages=("Flask" "psutil" "PyYAML" "requests")
-    for package in "${required_packages[@]}"; do
-        if python3 -c "import ${package,,}" &> /dev/null; then
+    declare -A package_imports=(
+        ["Flask"]="flask"
+        ["psutil"]="psutil"
+        ["PyYAML"]="yaml"
+        ["requests"]="requests"
+    )
+    
+    for package in Flask psutil PyYAML requests; do
+        local import_name="${package_imports[$package]}"
+        if python3 -c "import ${import_name}" &> /dev/null 2>&1; then
             print_success "$package installed"
         else
             print_error "$package NOT installed"
@@ -136,12 +143,28 @@ cmd_verify() {
     
     # 7. Check ag command registration
     echo "7️⃣ Checking 'ag' command registration..."
-    if command -v ag &> /dev/null; then
-        AG_PATH=$(which ag)
-        print_success "ag command found: $AG_PATH"
+    
+    # Check if ag launcher exists and is executable
+    if [ -f "$CLI_DIR/ag_launcher.sh" ] && [ -x "$CLI_DIR/ag_launcher.sh" ]; then
+        # Check if alias is registered in shell config
+        local shell_rc=""
+        if [ -n "$ZSH_VERSION" ] || [[ "$SHELL" == *"zsh"* ]]; then
+            shell_rc="$HOME/.zshrc"
+        else
+            shell_rc="$HOME/.bashrc"
+        fi
+        
+        if [ -f "$shell_rc" ] && grep -q "ag_launcher.sh" "$shell_rc" 2>/dev/null; then
+            print_success "ag command registered in $shell_rc"
+            print_info "Run: source $shell_rc (or restart terminal)"
+        else
+            print_warning "ag command NOT registered in shell"
+            print_info "Run: ./agent.sh setup"
+        fi
     else
-        print_warning "ag command NOT registered in shell"
+        print_error "ag_launcher.sh not found or not executable"
         print_info "Run: ./agent.sh setup"
+        all_ok=false
     fi
     echo ""
     
@@ -810,6 +833,161 @@ cmd_logs() {
     fi
 }
 
+# --- Command: verify-docker ---
+cmd_verify_docker() {
+    print_banner
+    echo "🐳 VERIFIKASI DOCKER & HYBRID SETUP"
+    echo "════════════════════════════════════════════════════════"
+    echo ""
+    
+    local all_ok=true
+    
+    # 1. Check Docker
+    echo "1️⃣ Checking Docker..."
+    if command -v docker &> /dev/null; then
+        DOCKER_VERSION=$(docker --version 2>&1)
+        print_success "Docker found: $DOCKER_VERSION"
+        
+        # Check if Docker daemon is running
+        if docker info &> /dev/null; then
+            print_success "Docker daemon is running"
+        else
+            print_warning "Docker daemon is not running"
+            print_info "Start: sudo systemctl start docker"
+            all_ok=false
+        fi
+    else
+        print_error "Docker not installed!"
+        print_info "Install: curl -fsSL https://get.docker.com | sh"
+        all_ok=false
+    fi
+    echo ""
+    
+    # 2. Check Docker Compose
+    echo "2️⃣ Checking Docker Compose..."
+    if docker compose version &> /dev/null 2>&1; then
+        COMPOSE_VERSION=$(docker compose version 2>&1)
+        print_success "Docker Compose found: $COMPOSE_VERSION"
+    elif command -v docker-compose &> /dev/null; then
+        COMPOSE_VERSION=$(docker-compose --version 2>&1)
+        print_success "Docker Compose (standalone) found: $COMPOSE_VERSION"
+    else
+        print_error "Docker Compose not found!"
+        all_ok=false
+    fi
+    echo ""
+    
+    # 3. Check bin directory structure
+    echo "3️⃣ Checking /bin directory structure..."
+    if [ -d "$PROJECT_ROOT/bin" ]; then
+        print_success "bin/ directory exists"
+        
+        # Check for web servers
+        local found_webservers=false
+        for webserver in nginx apache; do
+            if [ -d "$PROJECT_ROOT/bin/$webserver" ]; then
+                print_info "  • Found $webserver installations:"
+                for version_dir in "$PROJECT_ROOT/bin/$webserver"/*; do
+                    if [ -d "$version_dir" ]; then
+                        local version=$(basename "$version_dir")
+                        print_info "    - $webserver/$version"
+                        found_webservers=true
+                    fi
+                done
+            fi
+        done
+        
+        # Check for databases
+        local found_databases=false
+        for db in mysql mariadb postgresql mongodb; do
+            if [ -d "$PROJECT_ROOT/bin/$db" ]; then
+                print_info "  • Found $db installations:"
+                for version_dir in "$PROJECT_ROOT/bin/$db"/*; do
+                    if [ -d "$version_dir" ]; then
+                        local version=$(basename "$version_dir")
+                        print_info "    - $db/$version"
+                        found_databases=true
+                    fi
+                done
+            fi
+        done
+        
+        if [ "$found_webservers" = false ] && [ "$found_databases" = false ]; then
+            print_warning "No web servers or databases found in bin/"
+            print_info "Run: ./agent.sh setup-docker"
+        fi
+    else
+        print_error "bin/ directory not found!"
+        all_ok=false
+    fi
+    echo ""
+    
+    # 4. Check Docker images
+    echo "4️⃣ Checking Docker images..."
+    if command -v docker &> /dev/null && docker info &> /dev/null 2>&1; then
+        if docker images | grep -q "agent_nginx\|agent_apache"; then
+            print_success "Agent Docker images found:"
+            docker images | grep "agent_" | awk '{print "  • " $1 ":" $2 " (Size: " $7 " " $8 ")"}'
+        else
+            print_warning "No Agent Docker images found"
+            print_info "Run: ./agent.sh setup-docker"
+        fi
+    fi
+    echo ""
+    
+    # 5. Check docker-agent.sh script
+    echo "5️⃣ Checking docker-agent.sh..."
+    if [ -f "$DOCKER_AGENT_SCRIPT" ]; then
+        print_success "docker-agent.sh found"
+        if [ -x "$DOCKER_AGENT_SCRIPT" ]; then
+            print_success "docker-agent.sh is executable"
+        else
+            print_warning "docker-agent.sh is not executable"
+            print_info "Fix: chmod +x $DOCKER_AGENT_SCRIPT"
+        fi
+    else
+        print_warning "docker-agent.sh not found"
+    fi
+    echo ""
+    
+    # Final result
+    echo "════════════════════════════════════════════════════════"
+    if [ "$all_ok" = true ]; then
+        print_success "DOCKER VERIFICATION PASSED! 🎉"
+        return 0
+    else
+        print_warning "Some checks failed. Review issues above."
+        print_info "Run './agent.sh setup-docker' for hybrid setup"
+        return 1
+    fi
+}
+
+# --- Command: setup-docker ---
+cmd_setup_docker() {
+    print_banner
+    echo "🐳 DOCKER HYBRID SETUP"
+    echo "════════════════════════════════════════════════════════"
+    echo ""
+    
+    # Check if docker_setup_hybrid.sh exists
+    local setup_script="$CLI_DIR/docker_setup_hybrid.sh"
+    
+    if [ ! -f "$setup_script" ]; then
+        print_error "docker_setup_hybrid.sh not found at $setup_script"
+        print_info "Creating setup script..."
+        
+        # We'll create it in the next step
+        print_error "Setup script needs to be created first!"
+        return 1
+    fi
+    
+    # Make it executable
+    chmod +x "$setup_script"
+    
+    # Run the setup script
+    bash "$setup_script"
+}
+
 # --- Command: help ---
 cmd_help() {
     print_banner
@@ -819,15 +997,17 @@ cmd_help() {
     echo "Usage: ./agent.sh [command]"
     echo ""
     echo "Commands:"
-    echo "  verify      - Verify all system dependencies"
-    echo "  setup       - Setup system (install deps, register ag command)"
-    echo "  setup-host  - Setup custom host (komputerku.nour)"
-    echo "  start       - Start the agent service (with interactive mode)"
-    echo "  stop        - Stop all running services"
-    echo "  restart     - Restart with last used mode"
-    echo "  status      - Show service status and mode"
-    echo "  logs        - View service logs (tail -f)"
-    echo "  help        - Show this help message"
+    echo "  verify          - Verify all system dependencies"
+    echo "  verify-docker   - Verify Docker & hybrid setup"
+    echo "  setup           - Setup system (install deps, register ag command)"
+    echo "  setup-docker    - Setup Docker hybrid (Nginx/Apache + MySQL)"
+    echo "  setup-host      - Setup custom host (komputerku.nour)"
+    echo "  start           - Start the agent service (with interactive mode)"
+    echo "  stop            - Stop all running services"
+    echo "  restart         - Restart with last used mode"
+    echo "  status          - Show service status and mode"
+    echo "  logs            - View service logs (tail -f)"
+    echo "  help            - Show this help message"
     echo ""
     echo "Start Modes:"
     echo "  When you run './agent.sh start', you'll be asked:"
@@ -837,13 +1017,20 @@ cmd_help() {
     echo "  • stop/restart will follow the mode you chose"
     echo "  • Mode is saved automatically"
     echo ""
+    echo "Docker Hybrid Setup:"
+    echo "  ./agent.sh setup-docker will:"
+    echo "    • Download Nginx/Apache + MySQL to /bin"
+    echo "    • Validate existing files (skip if valid)"
+    echo "    • Build Docker image with hybrid setup"
+    echo ""
     echo "Examples:"
-    echo "  ./agent.sh verify       # Check system requirements"
-    echo "  ./agent.sh setup        # One-time setup"
-    echo "  ./agent.sh start        # Start service (interactive)"
-    echo "  ./agent.sh status       # Check status & mode"
-    echo "  ./agent.sh restart      # Restart with same mode"
-    echo "  ag bantuan              # Use ag command (after setup)"
+    echo "  ./agent.sh verify           # Check system requirements"
+    echo "  ./agent.sh verify-docker    # Check Docker & bin/ files"
+    echo "  ./agent.sh setup            # One-time setup"
+    echo "  ./agent.sh setup-docker     # Setup Docker hybrid"
+    echo "  ./agent.sh start            # Start service (interactive)"
+    echo "  ./agent.sh status           # Check status & mode"
+    echo "  ag bantuan                  # Use ag command (after setup)"
     echo ""
 }
 
@@ -855,8 +1042,14 @@ main() {
         verify)
             cmd_verify
             ;;
+        verify-docker)
+            cmd_verify_docker
+            ;;
         setup)
             cmd_setup
+            ;;
+        setup-docker)
+            cmd_setup_docker
             ;;
         setup-host)
             cmd_setup_host
