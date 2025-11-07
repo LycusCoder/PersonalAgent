@@ -347,6 +347,97 @@ check_docker_available() {
     return 0
 }
 
+# --- Helper: Detect Available Web Servers ---
+detect_available_webservers() {
+    local webservers=()
+    
+    # Check for nginx installations
+    if [ -d "$PROJECT_ROOT/bin/nginx" ]; then
+        for version_dir in "$PROJECT_ROOT/bin/nginx"/*; do
+            if [ -d "$version_dir" ]; then
+                webservers+=("nginx")
+                break
+            fi
+        done
+    fi
+    
+    # Check for apache installations
+    if [ -d "$PROJECT_ROOT/bin/apache" ] || [ -d "$PROJECT_ROOT/bin/apache2" ]; then
+        for dir in apache apache2; do
+            if [ -d "$PROJECT_ROOT/bin/$dir" ]; then
+                for version_dir in "$PROJECT_ROOT/bin/$dir"/*; do
+                    if [ -d "$version_dir" ]; then
+                        webservers+=("apache")
+                        break 2
+                    fi
+                done
+            fi
+        done
+    fi
+    
+    # Return as space-separated string
+    echo "${webservers[@]}"
+}
+
+# --- Helper: Get Web Server Display Name ---
+get_webserver_display_name() {
+    local webserver="$1"
+    
+    case "$webserver" in
+        nginx)
+            echo "Nginx"
+            ;;
+        apache)
+            echo "Apache2"
+            ;;
+        *)
+            echo "$webserver"
+            ;;
+    esac
+}
+
+# --- Helper: Select Web Server ---
+select_webserver() {
+    local available_servers="$1"
+    local server_array=($available_servers)
+    local count=${#server_array[@]}
+    
+    if [ $count -eq 0 ]; then
+        print_error "Tidak ada web server ditemukan di bin/!"
+        print_info "Jalankan: ./agent.sh setup-docker"
+        return 1
+    elif [ $count -eq 1 ]; then
+        # Only one available, use it automatically
+        echo "${server_array[0]}"
+        return 0
+    else
+        # Multiple options, ask user
+        echo "📦 Pilih Web Server untuk Docker Hybrid:"
+        echo ""
+        
+        local i=1
+        for server in "${server_array[@]}"; do
+            local display_name=$(get_webserver_display_name "$server")
+            echo "  [$i] $display_name"
+            i=$((i + 1))
+        done
+        echo ""
+        
+        while true; do
+            read -p "Pilih web server [1-$count]: " -n 1 -r
+            echo ""
+            
+            if [[ $REPLY =~ ^[0-9]+$ ]] && [ $REPLY -ge 1 ] && [ $REPLY -le $count ]; then
+                local selected_index=$((REPLY - 1))
+                echo "${server_array[$selected_index]}"
+                return 0
+            else
+                print_warning "Pilihan tidak valid. Silakan pilih 1-$count"
+            fi
+        done
+    fi
+}
+
 # --- Helper: Start Flask Service ---
 start_flask_service() {
     print_info "Starting Flask service..."
@@ -386,7 +477,10 @@ start_flask_service() {
 
 # --- Helper: Start Docker Agent ---
 start_docker_agent() {
-    print_info "Starting Docker Nginx Reverse Proxy..."
+    local webserver="${1:-nginx}"  # Default to nginx if not specified
+    local display_name=$(get_webserver_display_name "$webserver")
+    
+    print_info "Starting Docker $display_name Reverse Proxy..."
     
     if [ ! -f "$DOCKER_AGENT_SCRIPT" ]; then
         print_error "docker-agent.sh not found!"
@@ -394,9 +488,10 @@ start_docker_agent() {
     fi
     
     # Check if image exists
-    if ! docker images | grep -q "agent_nginx"; then
+    local image_name="agent_${webserver}"
+    if ! docker images | grep -q "$image_name"; then
         print_warning "Docker image not found. Building..."
-        bash "$DOCKER_AGENT_SCRIPT" build
+        bash "$DOCKER_AGENT_SCRIPT" build "$webserver"
         if [ $? -ne 0 ]; then
             print_error "Failed to build Docker image"
             return 1
@@ -404,7 +499,7 @@ start_docker_agent() {
     fi
     
     # Start Docker container
-    bash "$DOCKER_AGENT_SCRIPT" start
+    bash "$DOCKER_AGENT_SCRIPT" start "$webserver"
     
     if [ $? -eq 0 ]; then
         print_success "Docker agent started successfully!"
@@ -450,11 +545,30 @@ cmd_start() {
         fi
     fi
     
+    # Detect available web servers in bin/
+    local available_webservers=$(detect_available_webservers)
+    
+    # Build dynamic prompt message
+    local docker_desc="Dengan Docker Agent"
+    if [ -n "$available_webservers" ]; then
+        local server_array=($available_webservers)
+        local count=${#server_array[@]}
+        
+        if [ $count -eq 1 ]; then
+            local display_name=$(get_webserver_display_name "${server_array[0]}")
+            docker_desc="Dengan Docker Agent ($display_name Reverse Proxy)"
+        else
+            docker_desc="Dengan Docker Agent (Pilih Web Server)"
+        fi
+    else
+        docker_desc="Dengan Docker Agent (⚠️  Belum setup)"
+    fi
+    
     # Ask user for mode selection
     echo "📦 Pilih mode untuk menjalankan Agent Service:"
     echo ""
-    echo "  [Y] Dengan Docker Agent (Nginx Reverse Proxy)"
-    echo "      → Flask service + Nginx container"
+    echo "  [Y] $docker_desc"
+    echo "      → Flask service + Docker container"
     echo "      → Akses: http://localhost:7777 & http://komputerku.nour"
     echo ""
     echo "  [N] Native saja (tanpa Docker)"
@@ -467,11 +581,8 @@ cmd_start() {
     
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         # Mode: With Docker
-        print_info "Mode: Flask + Docker Agent (Nginx)"
-        echo "════════════════════════════════════════════════════════"
-        echo ""
         
-        # Check Docker availability
+        # Check Docker availability first
         if ! check_docker_available; then
             print_error "Docker atau Docker Compose tidak tersedia!"
             print_info "Install Docker: https://docs.docker.com/get-docker/"
@@ -481,33 +592,71 @@ cmd_start() {
             
             start_flask_service
             save_mode "native"
-        else
-            # Start Flask first
-            if start_flask_service; then
+            return 0
+        fi
+        
+        # Check if any web server is available
+        if [ -z "$available_webservers" ]; then
+            print_error "Tidak ada web server ditemukan di bin/!"
+            print_info "Jalankan: ./agent.sh setup-docker"
+            echo ""
+            print_warning "Falling back to native mode (Flask only)..."
+            echo ""
+            
+            start_flask_service
+            save_mode "native"
+            return 0
+        fi
+        
+        # Select web server
+        echo "🔍 Mendeteksi web server yang tersedia..."
+        local selected_webserver=$(select_webserver "$available_webservers")
+        
+        if [ $? -ne 0 ] || [ -z "$selected_webserver" ]; then
+            print_error "Gagal memilih web server!"
+            echo ""
+            print_warning "Falling back to native mode (Flask only)..."
+            echo ""
+            
+            start_flask_service
+            save_mode "native"
+            return 0
+        fi
+        
+        local display_name=$(get_webserver_display_name "$selected_webserver")
+        echo ""
+        print_info "Mode: Flask + Docker Agent ($display_name)"
+        echo "════════════════════════════════════════════════════════"
+        echo ""
+        
+        # Start Flask first
+        if start_flask_service; then
+            echo ""
+            
+            # Save webserver choice
+            echo "$selected_webserver" > "$PROJECT_ROOT/.agent_webserver.conf"
+            
+            # Start Docker agent with selected webserver
+            if start_docker_agent "$selected_webserver"; then
+                save_mode "docker"
                 echo ""
-                
-                # Start Docker agent
-                if start_docker_agent; then
-                    save_mode "docker"
-                    echo ""
-                    echo "════════════════════════════════════════════════════════"
-                    print_success "✅ SEMUA SERVICE BERHASIL DIJALANKAN!"
-                    echo ""
-                    print_info "📍 URL Akses:"
-                    print_info "  • http://localhost:7777 (Direct ke Flask)"
-                    print_info "  • http://komputerku.nour (Melalui Nginx)"
-                    echo ""
-                    print_info "💡 Tips:"
-                    print_info "  • Test: ag bantuan"
-                    print_info "  • Logs: ./agent.sh logs"
-                    print_info "  • Status: ./agent.sh status"
-                else
-                    print_warning "Docker agent gagal dijalankan, tapi Flask tetap jalan"
-                    save_mode "native"
-                fi
+                echo "════════════════════════════════════════════════════════"
+                print_success "✅ SEMUA SERVICE BERHASIL DIJALANKAN!"
+                echo ""
+                print_info "📍 URL Akses:"
+                print_info "  • http://localhost:7777 (Direct ke Flask)"
+                print_info "  • http://komputerku.nour (Melalui $display_name)"
+                echo ""
+                print_info "💡 Tips:"
+                print_info "  • Test: ag bantuan"
+                print_info "  • Logs: ./agent.sh logs"
+                print_info "  • Status: ./agent.sh status"
             else
-                return 1
+                print_warning "Docker agent gagal dijalankan, tapi Flask tetap jalan"
+                save_mode "native"
             fi
+        else
+            return 1
         fi
     else
         # Mode: Native only
@@ -541,19 +690,34 @@ stop_docker_agent() {
         return 0
     fi
     
-    # Check if nginx container is running
-    if docker ps | grep -q "agent_nginx"; then
-        print_info "Stopping Docker Nginx container..."
+    # Get saved webserver
+    local webserver="nginx"
+    if [ -f "$PROJECT_ROOT/.agent_webserver.conf" ]; then
+        webserver=$(cat "$PROJECT_ROOT/.agent_webserver.conf")
+    fi
+    
+    local container_name="agent_${webserver}"
+    local display_name=$(get_webserver_display_name "$webserver")
+    
+    # Check if container is running
+    if docker ps | grep -q "$container_name"; then
+        print_info "Stopping Docker $display_name container..."
         
         if [ -f "$DOCKER_AGENT_SCRIPT" ]; then
-            bash "$DOCKER_AGENT_SCRIPT" stop > /dev/null 2>&1
+            bash "$DOCKER_AGENT_SCRIPT" stop "$webserver" > /dev/null 2>&1
             print_success "Docker agent stopped"
         else
             # Fallback: stop container directly
-            docker stop agent_nginx > /dev/null 2>&1 || true
-            docker rm agent_nginx > /dev/null 2>&1 || true
+            docker stop "$container_name" > /dev/null 2>&1 || true
+            docker rm "$container_name" > /dev/null 2>&1 || true
             print_success "Docker container stopped"
         fi
+    fi
+    
+    # Also check for any agent_* containers (cleanup)
+    if docker ps -a | grep -q "agent_"; then
+        print_info "Cleaning up any remaining agent containers..."
+        docker ps -a | grep "agent_" | awk '{print $1}' | xargs -r docker rm -f > /dev/null 2>&1 || true
     fi
 }
 
@@ -691,7 +855,14 @@ cmd_restart() {
     
     # Restart based on saved mode
     if [ "$mode" = "docker" ]; then
-        print_info "Restarting dengan Docker agent..."
+        # Get saved webserver choice
+        local webserver="nginx"  # Default
+        if [ -f "$PROJECT_ROOT/.agent_webserver.conf" ]; then
+            webserver=$(cat "$PROJECT_ROOT/.agent_webserver.conf")
+        fi
+        
+        local display_name=$(get_webserver_display_name "$webserver")
+        print_info "Restarting dengan Docker agent ($display_name)..."
         echo ""
         
         # Start Flask
@@ -701,16 +872,16 @@ cmd_restart() {
             echo ""
             # Start Docker
             if check_docker_available; then
-                start_docker_agent
+                start_docker_agent "$webserver"
                 
                 if [ $? -eq 0 ]; then
                     echo ""
                     echo "════════════════════════════════════════════════════════"
-                    print_success "✅ RESTART SELESAI (Mode: Docker)"
+                    print_success "✅ RESTART SELESAI (Mode: Docker - $display_name)"
                     echo ""
                     print_info "📍 URL Akses:"
-                    print_info "  • http://localhost:7777"
-                    print_info "  • http://komputerku.nour"
+                    print_info "  • http://localhost:7777 (Direct ke Flask)"
+                    print_info "  • http://komputerku.nour (Melalui $display_name)"
                 else
                     print_warning "Docker agent gagal restart, Flask tetap jalan"
                 fi
@@ -782,12 +953,21 @@ cmd_status() {
     
     # Check Docker Agent if mode is docker
     if [ "$mode" = "docker" ]; then
-        echo "🔹 Docker Agent (Nginx):"
+        # Get saved webserver
+        local webserver="nginx"
+        if [ -f "$PROJECT_ROOT/.agent_webserver.conf" ]; then
+            webserver=$(cat "$PROJECT_ROOT/.agent_webserver.conf")
+        fi
+        
+        local display_name=$(get_webserver_display_name "$webserver")
+        echo "🔹 Docker Agent ($display_name):"
+        
         if check_docker_available; then
-            if docker ps | grep -q "agent_nginx"; then
+            local container_name="agent_${webserver}"
+            if docker ps | grep -q "$container_name"; then
                 print_success "RUNNING"
                 echo ""
-                docker ps --filter "name=agent_nginx" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+                docker ps --filter "name=$container_name" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
                 
                 echo ""
                 print_info "Testing endpoints..."
