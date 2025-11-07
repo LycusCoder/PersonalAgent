@@ -44,7 +44,7 @@ check_docker() {
         exit 1
     fi
     
-    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null 2>&1; then
+    if ! command -v docker compose &> /dev/null && ! docker compose version &> /dev/null 2>&1; then
         print_error "Docker Compose is not installed!"
         print_info "Install Docker Compose: https://docs.docker.com/compose/install/"
         exit 1
@@ -61,7 +61,7 @@ cmd_build() {
     check_docker
     
     print_info "Building nginx image from Dockerfile.nginx..."
-    docker-compose -f "$DOCKER_COMPOSE_FILE" build --no-cache
+    docker compose -f "$DOCKER_COMPOSE_FILE" build --no-cache
     
     print_success "Nginx image built successfully!"
     print_info "Next: Run './docker-agent.sh start' to start nginx"
@@ -91,7 +91,7 @@ cmd_start() {
     fi
     
     print_info "Starting nginx container..."
-    docker-compose -f "$DOCKER_COMPOSE_FILE" up -d
+    docker compose -f "$DOCKER_COMPOSE_FILE" up -d
     
     sleep 2
     
@@ -120,7 +120,7 @@ cmd_stop() {
     check_docker
     
     print_info "Stopping nginx container..."
-    docker-compose -f "$DOCKER_COMPOSE_FILE" down
+    docker compose -f "$DOCKER_COMPOSE_FILE" down
     
     print_success "Nginx container stopped!"
 }
@@ -189,7 +189,7 @@ cmd_logs() {
     
     print_info "Showing nginx container logs (Ctrl+C to exit)..."
     echo ""
-    docker-compose -f "$DOCKER_COMPOSE_FILE" logs -f nginx
+    docker compose -f "$DOCKER_COMPOSE_FILE" logs -f nginx
 }
 
 # Command: test
