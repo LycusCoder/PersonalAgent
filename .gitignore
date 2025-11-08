@@ -2,6 +2,10 @@
 # Folder yang berisi token atau kunci rahasia
 keys/
 
+# --- Development Tools Binary ---
+# Folder yang berisi binary tool yang di-download/install Tool Manager
+bin/
+
 # --- Dependency dan Virtual Environment ---
 # Virtual environment Python (wajib diabaikan)
 venv/

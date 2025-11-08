@@ -1,10 +1,10 @@
 #!/bin/bash
 # ============================================================================
-# DOCKER-AGENT.SH - Docker Management Script untuk Nginx Reverse Proxy
+# DOCKER-AGENT.SH - Docker Management Script untuk Web Server Reverse Proxy
 # ============================================================================
-# Manage nginx container untuk Agent Pribadi
+# Manage nginx/apache container untuk Agent Pribadi
 # Author: Agent Pribadi Team
-# Version: 1.0.0
+# Version: 2.0.0
 # ============================================================================
 
 set -e
@@ -14,6 +14,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 DOCKER_COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yml"
 
+# Default web server (can be overridden by parameter)
+DEFAULT_WEBSERVER="nginx"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -22,11 +25,23 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Helper Functions
+get_webserver_display_name() {
+    local webserver="$1"
+    case "$webserver" in
+        nginx) echo "Nginx" ;;
+        apache) echo "Apache2" ;;
+        *) echo "$webserver" ;;
+    esac
+}
+
 print_banner() {
+    local webserver="${1:-$DEFAULT_WEBSERVER}"
+    local display_name=$(get_webserver_display_name "$webserver")
+    
     echo -e "${BLUE}"
     echo "╔════════════════════════════════════════════════════════╗"
     echo "║       AGENT PRIBADI - DOCKER MANAGEMENT               ║"
-    echo "║           Nginx Reverse Proxy Manager                 ║"
+    echo "║         $display_name Reverse Proxy Manager              ║"
     echo "╚════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 }
