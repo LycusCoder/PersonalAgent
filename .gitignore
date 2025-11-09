@@ -6,6 +6,13 @@ keys/
 # Folder yang berisi binary tool yang di-download/install Tool Manager
 bin/
 
+# Node / JavaScript dependencies
+node_modules/
+gui/node_modules/
+
+# Optional: Vite build output (if you prefer to keep built assets out of repo)
+# static/gui/
+
 # --- Dependency dan Virtual Environment ---
 # Virtual environment Python (wajib diabaikan)
 venv/
