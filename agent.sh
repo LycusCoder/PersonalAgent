@@ -1187,6 +1187,7 @@ cmd_help() {
     echo "  restart         - Restart with last used mode"
     echo "  status          - Show service status and mode"
     echo "  logs            - View service logs (tail -f)"
+    echo "  open-ui         - Open web dashboard in default browser"
     echo "  help            - Show this help message"
     echo ""
     echo "Start Modes:"
@@ -1212,6 +1213,45 @@ cmd_help() {
     echo "  ./agent.sh status           # Check status & mode"
     echo "  ag bantuan                  # Use ag command (after setup)"
     echo ""
+}
+
+# --- Command: open-ui ---
+cmd_open_ui() {
+    print_banner
+    echo "🌐 OPEN WEB DASHBOARD"
+    echo "════════════════════════════════════════════════════════"
+    echo ""
+
+    local URL="http://localhost:7777"
+
+    # Check service health
+    if curl -s "$API_URL/health" >/dev/null 2>&1; then
+        print_info "Service is running. Opening browser: $URL"
+    else
+        print_warning "Service does not appear to be running at $API_URL"
+        read -p "Start the service now? [Y/n]: " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]] || [ -z "$REPLY" ]; then
+            print_info "Starting Flask service..."
+            start_flask_service || { print_error "Failed to start service"; return 1; }
+        else
+            print_info "Aborted. Start the service first, or run './agent.sh start'"
+            return 1
+        fi
+    fi
+
+    # Open URL in default browser
+    if command -v xdg-open &> /dev/null; then
+        xdg-open "$URL" >/dev/null 2>&1 &
+    elif command -v gnome-open &> /dev/null; then
+        gnome-open "$URL" >/dev/null 2>&1 &
+    elif command -v open &> /dev/null; then
+        open "$URL" >/dev/null 2>&1 &
+    else
+        python3 -m webbrowser "$URL" >/dev/null 2>&1 &
+    fi
+
+    print_success "Web dashboard should open in your default browser. If not, visit: $URL"
 }
 
 # --- Main Entry Point ---
@@ -1242,6 +1282,9 @@ main() {
             ;;
         restart)
             cmd_restart
+            ;;
+        open-ui)
+            cmd_open_ui
             ;;
         status)
             cmd_status

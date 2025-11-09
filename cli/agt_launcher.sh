@@ -39,6 +39,22 @@ speak() {
 # Gabungkan semua argumen menjadi satu command
 COMMAND="$*"
 
+# If user wants to open web UI: agt --ui | agt -w | agt ui
+if [ "$COMMAND" = "--ui" ] || [ "$COMMAND" = "-w" ] || [ "$COMMAND" = "ui" ] || [ "$COMMAND" = "open-ui" ]; then
+    URL="http://localhost:7777"
+    echo "Opening web dashboard at $URL"
+    if command -v xdg-open &> /dev/null; then
+        xdg-open "$URL" >/dev/null 2>&1 &
+    elif command -v gnome-open &> /dev/null; then
+        gnome-open "$URL" >/dev/null 2>&1 &
+    elif command -v open &> /dev/null; then
+        open "$URL" >/dev/null 2>&1 &
+    else
+        python3 -m webbrowser "$URL" >/dev/null 2>&1 &
+    fi
+    exit 0
+fi
+
 # Validasi input
 if [ -z "$COMMAND" ]; then
     echo "═══════════════════════════════════════════════════════════"

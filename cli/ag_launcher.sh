@@ -42,6 +42,23 @@ fi
 # Gabungkan semua argumen menjadi satu command
 COMMAND="$*"
 
+# Jika user ingin membuka web UI: ag --ui | ag -w | ag ui
+if [ "$COMMAND" = "--ui" ] || [ "$COMMAND" = "-w" ] || [ "$COMMAND" = "ui" ] || [ "$COMMAND" = "open-ui" ]; then
+    URL="http://localhost:7777"
+    echo "Opening web dashboard at $URL"
+    if command -v xdg-open &> /dev/null; then
+        xdg-open "$URL" >/dev/null 2>&1 &
+    elif command -v gnome-open &> /dev/null; then
+        gnome-open "$URL" >/dev/null 2>&1 &
+    elif command -v open &> /dev/null; then
+        open "$URL" >/dev/null 2>&1 &
+    else
+        # Fallback to python webbrowser
+        python3 -m webbrowser "$URL" >/dev/null 2>&1 &
+    fi
+    exit 0
+fi
+
 # Validasi input
 if [ -z "$COMMAND" ]; then
     echo "Usage: ag [-v] <command>"
