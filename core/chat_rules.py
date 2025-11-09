@@ -168,7 +168,12 @@ def process_command(user_input: str) -> Dict[str, Any]:
             'success': True,
             'message': message,
             'data': summary,
-            'command_type': 'system_summary'
+            'command_type': 'system_summary',
+            # Instruksi frontend untuk membuka modal Dashboard
+            'action': {
+                'type': 'OPEN_MODAL',
+                'view': 'DASHBOARD'
+            }
         }
     
     # Rule 11: Bantuan / Help

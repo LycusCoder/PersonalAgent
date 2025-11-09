@@ -161,7 +161,11 @@ def history():
 @app.route('/', methods=['GET'])
 def dashboard():
     """Web dashboard sederhana."""
-    return render_template('dashboard.html')
+    # Serve React-based dashboard when available. Keep legacy dashboard.html as fallback.
+    try:
+        return render_template('dashboard.react.html')
+    except Exception:
+        return render_template('dashboard.html')
 
 
 if __name__ == '__main__':
